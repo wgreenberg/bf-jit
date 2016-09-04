@@ -47,3 +47,6 @@ BITS 64
 
 ; jump forward to ]
 ;jmp 0x27
+
+; [-]
+;mov byte [rdx], 0

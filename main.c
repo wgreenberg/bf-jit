@@ -108,12 +108,30 @@ int count_runs (char* program, int program_len, int *program_i) {
   return count;
 }
 
+int get_peephole_optimization (unsigned char *code, char* program, int program_len, int *program_i) {
+  int lookahead_space = program_len - *program_i;
+  if (lookahead_space >= 3) {
+    // [-] => mov byte [rdx], 0
+    if (strncmp(program + *program_i, "[-]", 3) == 0) {
+      if (code != NULL) {
+        memcpy(code, "\xc6\x02\x00", 3);
+      }
+      *program_i += 2;
+      return 3;
+    }
+  }
+  return 0;
+}
+
 int get_program_size (char *program, int program_len) {
   int i;
   int size = 0;
   for (i=0; i < program_len; i++) {
     char command = program[i];
-    if (command == '[') {
+    int peephole_size = get_peephole_optimization(NULL, program, program_len, &i);
+    if (peephole_size > 0) {
+      size += peephole_size;
+    } else if (command == '[') {
       size += 5;
     } else if (command == ']') {
       size += 9;
@@ -153,7 +171,10 @@ void jit (char *program, int program_len) {
 
   for (i=0; i < program_len; i++) {
     char command = program[i];
-    if (command == '[') {
+    int peephole_size = get_peephole_optimization(code, program, program_len, &i);
+    if (peephole_size > 0) {
+      code += peephole_size;
+    } else if (command == '[') {
       // remember where this [ is so we can recall it on the next ]
       if (stack_push(&offsets, code) == 0) {
         printf("stack overflow!!!\n");
