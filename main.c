@@ -40,48 +40,68 @@ unsigned char* stack_pop (struct stack *s) {
   return s->offsets[s->ptr];
 }
 
-struct machine_op brainfuck2op (char command) {
-  struct machine_op ret;
+int write_brainfuck_ops (unsigned char *code, char command, int num_repeated) {
+  unsigned char num_repeated_byte = (unsigned char)num_repeated;
 
   switch (command) {
 
     case '>': // advance to next cell
-      ret.code = "\x48\xff\xc2"; // inc rdx
-      ret.size = 3;
-      break;
+      if (code != NULL) {
+        memcpy(code, "\x48\x83\xc2", 3);
+        memcpy(code+3, &num_repeated_byte, 1);
+      }
+      return 4;
 
     case '<': // go back to prev cell
-      ret.code = "\x48\xff\xca"; // dec rdx
-      ret.size = 3;
-      break;
+      if (code != NULL) {
+        memcpy(code, "\x48\x83\xea", 3);
+        memcpy(code+3, &num_repeated_byte, 1);
+      }
+      return 4;
 
     case '+': // increment current cell
-      ret.code = "\x80\x02\x01";
-      ret.size = 3;
-      break;
+      if (code != NULL) {
+        memcpy(code, "\x80\x02", 2);
+        memcpy(code+2, &num_repeated_byte, 1);
+      }
+      return 3;
 
     case '-': // decrement current cell
-      ret.code = "\x80\x2a\x01";
-      ret.size = 3;
-      break;
+      if (code != NULL) {
+        memcpy(code, "\x80\x2a", 2);
+        memcpy(code+2, &num_repeated_byte, 1);
+      }
+      return 3;
 
     case ',': // store input in current cell
-      ret.code = "\xb8\x00\x00\x00\x00\xbf\x00\x00\x00\x00\x48\x89\xd6\x52\xba\x01\x00\x00\x00\x0f\x05\x5a";
-      ret.size = 22;
-      break;
+      if (code != NULL) {
+        memcpy(code, "\xb8\x00\x00\x00\x00\xbf\x00\x00\x00\x00\x48\x89\xd6\x52\xba\x01\x00\x00\x00\x0f\x05\x5a", 22);
+      }
+      return 22;
 
     case '.': // output from current cell
-      ret.code = "\x48\x89\xd6\xb8\x01\x00\x00\x00\xbf\x01\x00\x00\x00\x52\xba\x01\x00\x00\x00\x0f\x05\x5a";
-      ret.size = 22;
-      break;
+      if (code != NULL) {
+        memcpy(code, "\x48\x89\xd6\xb8\x01\x00\x00\x00\xbf\x01\x00\x00\x00\x52\xba\x01\x00\x00\x00\x0f\x05\x5a", 22);
+      }
+      return 22;
 
     default:
-      ret.code = NULL;
-      ret.size = 0;
-      break;
+      return 0;
   }
+}
 
-  return ret;
+int count_runs (char* program, int program_len, int *program_i) {
+  int i = *program_i;
+  char c = program[i];
+  i++;
+  int count = 1;
+  for (; i<program_len; i++) {
+    if (c != program[i])
+      break;
+    count++;
+  }
+  *program_i += count - 1;
+  return count;
 }
 
 int get_program_size (char *program, int program_len) {
@@ -94,7 +114,8 @@ int get_program_size (char *program, int program_len) {
     } else if (command == ']') {
       size += 9;
     } else {
-      size += brainfuck2op(program[i]).size;
+      int num_repeated = count_runs(program, program_len, &i);
+      size += write_brainfuck_ops(NULL, program[i], num_repeated);
     } 
   }
   return size;
@@ -128,7 +149,6 @@ void jit (char *program, int program_len) {
 
   for (i=0; i < program_len; i++) {
     char command = program[i];
-    struct machine_op op = { NULL, 0 };
     if (command == '[') {
       // remember where this [ is so we can recall it on the next ]
       if (stack_push(&offsets, code) == 0) {
@@ -137,7 +157,8 @@ void jit (char *program, int program_len) {
       }
 
       // this'll get filled in when we find the corresponding ]
-      op = (struct machine_op){ "\x00\x00\x00\x00\x00", 5 };
+      memcpy(code, "\x00\x00\x00\x00\x00", 5);
+      code += 5;
     } else if (command == ']') {
       // find out where the last matching [ is
       unsigned char* loop_start = stack_pop(&offsets);
@@ -162,13 +183,10 @@ void jit (char *program, int program_len) {
       memcpy(code+5, &jump_back, 4);
       code += 9;
     } else {
-      op = brainfuck2op(program[i]);
+      int num_repeated = count_runs(program, program_len, &i);
+      int size = write_brainfuck_ops(code, program[i], num_repeated);
+      code += size;
     } 
-
-    if (op.code != NULL) {
-      memcpy(code, op.code, op.size);
-      code += op.size;
-    }
   }
 
   memcpy(code, "\xb8\x3c\x00\x00\x00\x0f\x05", 7);
