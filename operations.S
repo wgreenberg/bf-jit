@@ -1,6 +1,6 @@
 BITS 64
 
-; Example nasm for brainfuck ops. To view generated machine code for an op,
+; Example asm for brainfuck ops. To view generated machine code for an op,
 ; uncomment it and and run:
 ;     $ nasm operations.S && xxd operations
 

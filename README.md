@@ -15,7 +15,7 @@ tell that's the only place it'll run.
 
 ```
 $ gcc -m64 main.c -o bfjit
-$ ./bfjit mandelbrot.b
+$ ./bfjit tests/mandelbrot.b
 ```
 
 # Acknowledgements
