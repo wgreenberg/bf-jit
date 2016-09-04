@@ -93,6 +93,10 @@ int write_brainfuck_ops (unsigned char *code, char command, int num_repeated) {
 int count_runs (char* program, int program_len, int *program_i) {
   int i = *program_i;
   char c = program[i];
+  // special case these since they're not combinable as such
+  if (c == '.' || c == '[' || c == ']') {
+    return 1;
+  }
   i++;
   int count = 1;
   for (; i<program_len; i++) {
