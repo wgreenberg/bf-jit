@@ -10,16 +10,12 @@
 #define USE_OPT_RUN_LENGTH 1
 #define USE_OPT_SET_ZERO 1
 
-#define NUM_CELLS 128
+#define NUM_CELLS 10000
 #define MAX_STACK_DEPTH NUM_CELLS/2
 
 typedef void (*jitted_code)();
 
-struct machine_op {
-  char *code;
-  int size;
-};
-
+// crappy stack impl
 struct stack {
   unsigned char* offsets[MAX_STACK_DEPTH];
   int ptr;
@@ -44,6 +40,9 @@ unsigned char* stack_pop (struct stack *s) {
   return s->offsets[s->ptr];
 }
 
+// writes out a run of a single brainfuck operation as x86 machine code (which
+// was derived from the operations.S file). Returns the size of the resulting
+// machine code size (if any)
 int write_brainfuck_ops (unsigned char *code, char command, int num_repeated) {
   unsigned char num_repeated_byte = (unsigned char)num_repeated;
 
@@ -94,16 +93,21 @@ int write_brainfuck_ops (unsigned char *code, char command, int num_repeated) {
   }
 }
 
+// looks ahead in the program to see if we have a run of a single character 
+// so we can squash them together, returning the number of repetitions
 int count_runs (char* program, int program_len, int *program_i) {
   if (!USE_OPT_RUN_LENGTH)
     return 1;
 
   int i = *program_i;
   char c = program[i];
+
   // special case these since they're not combinable as such
   if (c == '.' || c == '[' || c == ']') {
     return 1;
   }
+
+  // count up the number of consecutive occurrances of the first character
   i++;
   int count = 1;
   for (; i<program_len; i++) {
@@ -111,10 +115,16 @@ int count_runs (char* program, int program_len, int *program_i) {
       break;
     count++;
   }
+
+  // increment the program index since we're effectively squashing together a
+  // run of brainfuck operations into one
   *program_i += count - 1;
+
   return count;
 }
 
+// look ahead for more nuanced optimization patterns, returning the size of the
+// resulting machine code (if any)
 int get_peephole_optimization (unsigned char *code, char* program, int program_len, int *program_i) {
   int lookahead_space = program_len - *program_i;
   if (lookahead_space >= 3) {
@@ -132,6 +142,8 @@ int get_peephole_optimization (unsigned char *code, char* program, int program_l
   return 0;
 }
 
+// does a pass over the program to see how much space we need for our
+// executable mmap'd page
 int get_program_size (char *program, int program_len) {
   int i;
   int size = 0;
@@ -152,6 +164,7 @@ int get_program_size (char *program, int program_len) {
   return size;
 }
 
+// generate machine code for program and run it
 void jit (char *program, int program_len) {
   int i;
 
@@ -162,6 +175,7 @@ void jit (char *program, int program_len) {
     return;
   }
 
+  // create a read/write/execute page for us to write code to and run
   int page_size = get_program_size(program, program_len);
   unsigned char *page = mmap(0, page_size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (page == MAP_FAILED || page == NULL) {
@@ -178,8 +192,11 @@ void jit (char *program, int program_len) {
   // store offsets of '[' so we can jump to them at ']'
   struct stack offsets = stack_init();
 
+  // iterate through the entire program and generate machine code
   for (i=0; i < program_len; i++) {
     char command = program[i];
+
+    // if we find a peephole optimization, use that and continue
     int peephole_size = get_peephole_optimization(code, program, program_len, &i);
     if (peephole_size > 0) {
       code += peephole_size;
@@ -217,17 +234,23 @@ void jit (char *program, int program_len) {
       memcpy(code+5, &jump_back, 4);
       code += 9;
     } else {
+      // otherwise we're dealing with a normal command. see if there's a run of
+      // consecutive brainfuck symbols and write out the resulting machine code
       int num_repeated = count_runs(program, program_len, &i);
       int size = write_brainfuck_ops(code, program[i], num_repeated);
       code += size;
     } 
   }
 
+  // finish up with a call to sys_exit
   memcpy(code, "\xb8\x3c\x00\x00\x00\x0f\x05", 7);
   code += 7;
 
+  // run the jitted program!
   jitted_code func = (jitted_code)page;
   func();
+
+  // release our data segment
   free(data_section);
 }
 
@@ -235,12 +258,16 @@ int main (int argc, char **argv) {
   int fd = open(argv[1], O_RDONLY);
   char *program_buffer;
   struct stat s;
+
   if (fd < 0) {
     printf("couldn't open file!!\n");
     return 1;
   }
+
   fstat(fd, &s);
+
   program_buffer = mmap(0, s.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+
   if (program_buffer != (void*)-1) {
     jit(program_buffer, s.st_size);
     munmap(program_buffer, s.st_size);
