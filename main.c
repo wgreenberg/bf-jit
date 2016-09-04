@@ -6,6 +6,10 @@
 #include <string.h>
 #include <fcntl.h>
 
+// Optimizations!
+#define USE_OPT_RUN_LENGTH 1
+#define USE_OPT_SET_ZERO 1
+
 #define NUM_CELLS 128
 #define MAX_STACK_DEPTH NUM_CELLS/2
 
@@ -91,6 +95,9 @@ int write_brainfuck_ops (unsigned char *code, char command, int num_repeated) {
 }
 
 int count_runs (char* program, int program_len, int *program_i) {
+  if (!USE_OPT_RUN_LENGTH)
+    return 1;
+
   int i = *program_i;
   char c = program[i];
   // special case these since they're not combinable as such
@@ -113,6 +120,8 @@ int get_peephole_optimization (unsigned char *code, char* program, int program_l
   if (lookahead_space >= 3) {
     // [-] => mov byte [rdx], 0
     if (strncmp(program + *program_i, "[-]", 3) == 0) {
+      if (!USE_OPT_SET_ZERO)
+        return 0;
       if (code != NULL) {
         memcpy(code, "\xc6\x02\x00", 3);
       }
