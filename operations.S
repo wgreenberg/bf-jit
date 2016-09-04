@@ -5,10 +5,10 @@ BITS 64
 ;     $ nasm operations.S && xxd operations
 
 ; >
-;inc rdx
+;add byte rdx, 2
 
 ; <
-;dec rdx
+;sub byte rdx, 2
 
 ; +
 ;add byte [rdx], 1
